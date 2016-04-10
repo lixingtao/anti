@@ -59,12 +59,12 @@ int main(int argc, char *argv[])
     snprintf(sql, sql_maxlen, "select * from test");
     vector<vector<string> > ret;
     mysql->select(sql, ret, 4);
-    /*for (int i = 0; i < ret.size(); i++) {
+    for (int i = 0; i < ret.size(); i++) {
         for (int j = 0; j < ret[i].size(); j++) {
             printf("%s\t", ret[i][j].c_str());
         }
         cout<<endl;
-    }*/
+    }
 
     unordered_map<string, Slide_window*> sw_map; //存储滑动窗口的map
 
