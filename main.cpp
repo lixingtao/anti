@@ -7,6 +7,8 @@
 #include "slide_window.h"
 #include "stropt.h"
 
+#define NOTDEF
+
 extern "C" {
 #include "unp.h"
 }
@@ -130,7 +132,7 @@ int main(int argc, char *argv[])
 			if ( (sockfd = client[i].fd) < 0)
 				continue;
 			if (client[i].revents & (POLLRDNORM | POLLERR)) {
-				if ( (n = read(sockfd, &buf, sck_mbuflen)) < 0) {
+				if ( (n = read(sockfd, buf, sck_mbuflen)) < 0) {
 					if (errno == ECONNRESET) { /*4connection reset by client */
 #ifdef	NOTDEF
 						printf("client[%d] aborted connection\n", i);
@@ -147,6 +149,8 @@ int main(int argc, char *argv[])
 					client[i].fd = -1;
 				} else {
                     Request req;
+					//printf("########n=%d#######%s#####################\n", n, buf);
+					if (strlen(buf) == 0) continue;
                     strtoreq(buf, req);
 
                     Slide_window *p_window;

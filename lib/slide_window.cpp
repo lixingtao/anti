@@ -69,7 +69,7 @@ namespace SlideWindow{
                 if (count.size() > maxlen) count.pop_back();
             }
         }
-        if (count.empty()) printf("push_cnt_core error, in:%s", __FILE__); ////
+        if (count.empty()) printf("push_cnt_core error, in:%s\n", __FILE__); ////
         ++(*(count.begin()));
     }
     void Slide_window::push_cnt_sec(int timestamp) {
