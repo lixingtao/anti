@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
     string conf_file = argv[1];
 
     //读取配置文件
-    configfile g_File(conf_file);
+    configfile g_File(conf_file);/*{{{*/
     configitem<int> mysql_port(g_File, "mysql", "port", "", 0);
     configitem<std::string> mysql_ip(g_File, "mysql", "ip", "s=-", "Default");
     configitem<std::string> mysql_user(g_File, "mysql", "user", "s=-", "Default");
@@ -41,10 +41,10 @@ int main(int argc, char *argv[])
     configitem<int> socket_maxbuflen(g_File, "socket", "maxbuflen", "", 0);
     configitem<int> socket_maxclientopen(g_File, "socket", "maxclientopen", "", 0);
     configitem<int> socket_listenq(g_File, "socket", "listenq", "", 0);
-	g_File.read();
+	g_File.read();/*}}}*/
 
     //初始化，连接数据库
-    Mysql *mysql = new Mysql();
+    Mysql *mysql = new Mysql();/*{{{*/
     Mysql_conf *mysql_conf = new Mysql_conf();
     snprintf(mysql_conf->ip, 80, "%s", ((string)mysql_ip).c_str());
     snprintf(mysql_conf->user_name, 80, "%s", ((string)mysql_user).c_str());
@@ -54,7 +54,7 @@ int main(int argc, char *argv[])
     if(mysql->init(mysql_conf)){
         cout<<"init error"<<endl;
         return 1;
-    }
+    }/*}}}*/
 
     //数据库操作
     char sql[sql_maxlen];
@@ -149,7 +149,6 @@ int main(int argc, char *argv[])
 					client[i].fd = -1;
 				} else {
                     Request req;
-					//printf("########n=%d#######%s#####################\n", n, buf);
 					if (strlen(buf) == 0) continue;
                     strtoreq(buf, req);
 
