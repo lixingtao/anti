@@ -9,3 +9,5 @@ clean:
 	rm  main client
 connect: connect.cpp
 	g++ -g -o connect connect.cpp -lmysqlclient -I./lib -I./libunp ./lib/*.cpp ./binunp/libunp.a  -std=gnu++0x
+test: test.cpp
+	g++ -g -o test test.cpp -I./lib/ ./lib/socketopt.cpp

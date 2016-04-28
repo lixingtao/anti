@@ -6,16 +6,19 @@
 #include "mysqlopt.h"
 #include "slide_window.h"
 #include "stropt.h"
+#include "socketopt.h"
 
 #define NOTDEF
 
 extern "C" {
-#include "unp.h"
+//#include "unp.h"
 }
 
 using namespace configlib; 
 using namespace std;
 using namespace SlideWindow;
+
+const int INFTIM = -1;
 
 int main(int argc, char *argv[])
 {	
@@ -82,17 +85,17 @@ int main(int argc, char *argv[])
     struct pollfd client[sck_mcliopen];
     struct sockaddr_in cliaddr, servaddr;
 
-    listenfd = Socket(AF_INET, SOCK_STREAM, 0);
+    listenfd = socket(AF_INET, SOCK_STREAM, 0);
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port = htons(SERV_PORT);
+    servaddr.sin_port = htons((int)server_port);
 
-    Bind(listenfd, (SA *)&servaddr, sizeof(servaddr));
+    bind(listenfd, (SA *)&servaddr, sizeof(servaddr));
 
     //监听
-    Listen(listenfd, sck_listenq);
+    listen(listenfd, sck_listenq);
 
     client[0].fd = listenfd;
     client[0].events = POLLRDNORM;
@@ -103,13 +106,13 @@ int main(int argc, char *argv[])
 
     int cnt = 0;
 	for ( ; ; ) {
-		nready = Poll(client, maxi+1, INFTIM);
+		nready = poll(client, maxi+1, INFTIM);
 
 		if (client[0].revents & POLLRDNORM) {	/* new client connection */
 			clilen = sizeof(cliaddr);
-			connfd = Accept(listenfd, (SA *) &cliaddr, &clilen);
+			connfd = accept(listenfd, (SA *) &cliaddr, &clilen);
 #ifdef	NOTDEF
-			printf("new client: %s\n", Sock_ntop((SA *) &cliaddr, clilen));
+			//printf("new client: %s\n", sock_ntop((SA *) &cliaddr, clilen));
 #endif
 
 			for (i = 1; i < sck_mcliopen; i++)
@@ -117,8 +120,11 @@ int main(int argc, char *argv[])
 					client[i].fd = connfd;	/* save descriptor */
 					break;
 				}
-			if (i == sck_mcliopen)
-				err_quit("too many clients");
+			if (i == sck_mcliopen) {
+				//err_quit("too many clients");
+                printf("too many clients");
+                //return -1;
+            }
 
 			client[i].events = POLLRDNORM;
 			if (i > maxi)
@@ -137,15 +143,17 @@ int main(int argc, char *argv[])
 #ifdef	NOTDEF
 						printf("client[%d] aborted connection\n", i);
 #endif
-						Close(sockfd);
+						close(sockfd);
 						client[i].fd = -1;
-					} else
-						err_sys("read error");
+					} else {
+						//err_sys("read error");
+                        printf("read error");
+                    }
 				} else if (n == 0) { /*4connection closed by client */
 #ifdef	NOTDEF
 					printf("client[%d] closed connection\n", i);
 #endif
-					Close(sockfd);
+					close(sockfd);
 					client[i].fd = -1;
 				} else {
                     Request req;
@@ -168,7 +176,7 @@ int main(int argc, char *argv[])
                     printf("last 24h cnt: %d\n", p_window->get_cnt_hour(24));
 
                     strncpy(buf, "request successed\n", sck_mbuflen);
-                    Writen(sockfd, buf, strlen(buf));
+                    write(sockfd, buf, strlen(buf));
                     memset(buf, 0, sizeof(buf));
                     printf("cnt: %d\n***********\n", ++cnt);
                 }
@@ -178,6 +186,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    Close(listenfd);
+    close(listenfd);
     return 0;
 }
