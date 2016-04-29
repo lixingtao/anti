@@ -112,7 +112,8 @@ int main(int argc, char *argv[])
 			clilen = sizeof(cliaddr);
 			connfd = accept(listenfd, (SA *) &cliaddr, &clilen);
 #ifdef	NOTDEF
-			//printf("new client: %s\n", sock_ntop((SA *) &cliaddr, clilen));
+            char Ip[16];
+			printf("new client: %s\n", inet_ntop(AF_INET, &cliaddr.sin_addr, Ip, sizeof(Ip)));
 #endif
 
 			for (i = 1; i < sck_mcliopen; i++)
