@@ -1,123 +1,191 @@
 #include <iostream>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
-#include <vector>
-#include <algorithm>
-#include <list>
-#include <sys/socket.h>
-#include <time.h>
-#include <unistd.h>  
-#include <sys/types.h>  
-#include <sys/socket.h>  
-#include <netdb.h>  
-#include <stdio.h>  
-#include <stdlib.h>  
-#include <string.h>  
-#include <ctype.h>  
-#include <errno.h>  
-#include <malloc.h>  
-#include <netinet/in.h>  
-#include <arpa/inet.h>  
-#include <sys/ioctl.h>  
-#include <stdarg.h>  
-#include <fcntl.h>  
-#include <fcntl.h> 
+#include <unordered_map>
+#include "configfile.h"
+#include "configitem.h"
+#include "mysqlopt.h"
+#include "slide_window.h"
+#include "stropt.h"
+#include "socketopt.h"
 
+#define NOTDEF
+
+extern "C" {
+//#include "unp.h"
+}
+
+using namespace configlib; 
 using namespace std;
+using namespace SlideWindow;
 
-const int MAXLINE = 20000;
-const int LISTENQ = 1000;
-typedef struct sockaddr SA;
+const int INFTIM = -1;
 
-const int port = 14;
-
-int readline(int fd, void *vptr, const size_t maxlen) {
-    ssize_t n, rc;
-    char c, *ptr;
-    ptr =(char *) vptr;
-    for(n = 1; n < maxlen; n++) {
-        rc = read(fd, &c, 1);
-        if (rc == 1) {
-            *ptr++ = c;
-            if (c == '\n') break;
-        } else if (rc == 0){
-            *ptr = 0;
-            return n-1;
-        } else {
-            return -1;
-        }
+int main(int argc, char *argv[])
+{	
+    //
+    if (argc < 2) {
+        cout<<"input configure file name"<<endl;
+        return -1;
     }
-    *ptr = 0;
-    return n;
-}
+    string conf_file = argv[1];
 
-int write_format(int fd, void *vptr, int len) {
-    char len_c[4];
-    int ret = 0;
+    //读取配置文件
+    configfile g_File(conf_file);/*{{{*/
+    configitem<int> mysql_port(g_File, "mysql", "port", "", 0);
+    configitem<std::string> mysql_ip(g_File, "mysql", "ip", "s=-", "Default");
+    configitem<std::string> mysql_user(g_File, "mysql", "user", "s=-", "Default");
+    configitem<std::string> mysql_password(g_File, "mysql", "password", "s=-", "Default");
+    configitem<std::string> mysql_dbname(g_File, "mysql", "dbname", "s=-", "Default");
 
-    *(int *)len_c = len;
-    ret = write(fd,len_c, 4);
-    if (ret < 0) return ret;
+    configitem<int> server_port(g_File, "server", "port", "", 0);
 
-    ret = write(fd, vptr, strlen((char*)vptr));
-    return ret;
-}
+    configitem<int> slidewindow_size(g_File, "slidewindow", "windowsize", "", 0);
 
+    configitem<int> socket_maxbuflen(g_File, "socket", "maxbuflen", "", 0);
+    configitem<int> socket_maxclientopen(g_File, "socket", "maxclientopen", "", 0);
+    configitem<int> socket_listenq(g_File, "socket", "listenq", "", 0);
+	g_File.read();/*}}}*/
 
-//读取的前四个字节记录后面字符的个数，所以总长度应该大于等于4
-int  read_format(int fd, void *vptr) {
-    int ret = 0;
-    ret = read(fd, vptr, 4);
-    if (ret < 0) return ret;
+    //初始化，连接数据库
+    Mysql *mysql = new Mysql();/*{{{*/
+    Mysql_conf *mysql_conf = new Mysql_conf();
+    snprintf(mysql_conf->ip, 80, "%s", ((string)mysql_ip).c_str());
+    snprintf(mysql_conf->user_name, 80, "%s", ((string)mysql_user).c_str());
+    snprintf(mysql_conf->password, 80, "%s", ((string)mysql_password).c_str());
+    snprintf(mysql_conf->db_name, 80, "%s", ((string)mysql_dbname).c_str());
+    mysql_conf->port = (int)mysql_port;
+    if(mysql->init(mysql_conf)){
+        cout<<"init error"<<endl;
+        return 1;
+    }/*}}}*/
 
-    int len = *(int*)vptr;
-    ret = read(fd, vptr, len);
-    return ret;
-}
+    //数据库操作
+    char sql[sql_maxlen];
+    snprintf(sql, sql_maxlen, "select * from test");
+    vector<vector<string> > ret;
+    mysql->select(sql, ret, 4);
+    for (int i = 0; i < ret.size(); i++) {
+        for (int j = 0; j < ret[i].size(); j++) {
+            printf("%s\t", ret[i][j].c_str());
+        }
+        cout<<endl;
+    }
 
-int main(int argc,char *argv[])
-{
-    int listenfd, connfd;
-    socklen_t len;
-    struct sockaddr_in servaddr, cliaddr;
-    char buff[MAXLINE];
-    time_t ticks;
+    unordered_map<string, Slide_window*> sw_map; //存储滑动窗口的map
+
+    //创建套接字
+    int i, maxi, listenfd, connfd, sockfd;
+    int nready;
+    ssize_t n;
+    const int sck_mbuflen = (int)socket_maxbuflen;
+    const int sck_mcliopen = (int)socket_maxclientopen;
+    const int sck_listenq = (int)socket_listenq;
+    char buf[sck_mbuflen];
+    socklen_t clilen;
+    struct pollfd client[sck_mcliopen];
+    struct sockaddr_in cliaddr, servaddr;
 
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port = htons(port);
+    servaddr.sin_port = htons((int)server_port);
 
-    bind(listenfd, (SA *) &servaddr, sizeof(servaddr));
+    bind(listenfd, (SA *)&servaddr, sizeof(servaddr));
 
-    listen(listenfd, LISTENQ);
+    //监听
+    listen(listenfd, sck_listenq);
 
-    for(;;) {
-        len = sizeof(cliaddr);
-        connfd = accept(listenfd, (SA*) &cliaddr, &len);
+    client[0].fd = listenfd;
+    client[0].events = POLLRDNORM;
+    for (i = 1; i < sck_mcliopen; i++) {
+        client[i].fd = -1;
+    }
+    maxi = 0;
 
-        int readlen;
-        int writelen;
-        char readbuf[MAXLINE];
-        char writebuf[MAXLINE];
-        //read读取的是时候不会再目的字符串中添加终止符
-        //read读取不超过第三个参数的数据到readbuf中
-        /*while((readlen = read(connfd, readbuf, 2)) > 0) {
-          readbuf[readlen] = 0;
-          printf("%s**\n", readbuf);
-          fflush(stdout);
-          sleep(5);
-          }*/
-        //while((readlen = readline(connfd, readbuf, MAXLINE)) > 0) {
-        while((readlen = read_format(connfd, readbuf)) > 0) {
-            printf("%s", readbuf);
-            fflush(stdout);
+    int cnt = 0;
+	for ( ; ; ) {
+		nready = poll(client, maxi+1, INFTIM);
+
+		if (client[0].revents & POLLRDNORM) {	/* new client connection */
+			clilen = sizeof(cliaddr);
+			connfd = accept(listenfd, (SA *) &cliaddr, &clilen);
+#ifdef	NOTDEF
+			//printf("new client: %s\n", sock_ntop((SA *) &cliaddr, clilen));
+#endif
+
+			for (i = 1; i < sck_mcliopen; i++)
+				if (client[i].fd < 0) {
+					client[i].fd = connfd;	/* save descriptor */
+					break;
+				}
+			if (i == sck_mcliopen) {
+				//err_quit("too many clients");
+                printf("too many clients");
+                //return -1;
+            }
+
+			client[i].events = POLLRDNORM;
+			if (i > maxi)
+				maxi = i;				/* max index in client[] array */
+
+			if (--nready <= 0)
+				continue;				/* no more readable descriptors */
+		}
+
+		for (i = 1; i <= maxi; i++) {	/* check all clients for data */
+			if ( (sockfd = client[i].fd) < 0)
+				continue;
+			if (client[i].revents & (POLLRDNORM | POLLERR)) {
+				if ( (n = read(sockfd, buf, sck_mbuflen)) < 0) {
+					if (errno == ECONNRESET) { /*4connection reset by client */
+#ifdef	NOTDEF
+						printf("client[%d] aborted connection\n", i);
+#endif
+						close(sockfd);
+						client[i].fd = -1;
+					} else {
+						//err_sys("read error");
+                        printf("read error");
+                    }
+				} else if (n == 0) { /*4connection closed by client */
+#ifdef	NOTDEF
+					printf("client[%d] closed connection\n", i);
+#endif
+					close(sockfd);
+					client[i].fd = -1;
+				} else {
+                    Request req;
+					if (strlen(buf) == 0) continue;
+                    strtoreq(buf, req);
+
+                    Slide_window *p_window;
+                    if (sw_map.find(req.ip) == sw_map.end()) {
+                        sw_map[req.ip] = new Slide_window(slidewindow_size);
+                    }
+                    p_window = sw_map[req.ip];
+
+                    p_window->push_window(req);
+
+                    //p_window->print_window();
+                    req.print();
+                    cout<<p_window->get_cnt_sec(3)<<endl;
+                    printf("last 2s cnt: %d\n", p_window->get_cnt_sec(2));
+                    printf("last 2m cnt: %d\n", p_window->get_cnt_min(2));
+                    printf("last 24h cnt: %d\n", p_window->get_cnt_hour(24));
+
+                    strncpy(buf, "request successed\n", sck_mbuflen);
+                    write(sockfd, buf, strlen(buf));
+                    memset(buf, 0, sizeof(buf));
+                    printf("cnt: %d\n***********\n", ++cnt);
+                }
+
+                if (--nready <= 0) break;		/* no more readable descriptors */
+            }
         }
-        printf("finish \n");
-        fflush(stdout);
     }
+
+    close(listenfd);
     return 0;
-    }
+}
