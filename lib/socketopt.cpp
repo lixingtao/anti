@@ -43,3 +43,36 @@ int  read_format(int fd, void *vptr) {
     ret = read(fd, vptr, len);
     return ret;
 }
+
+int readn(int fd, void *vptr, int n) {
+    int nleft = n;
+    int nread;
+
+    char *ptr = (char*) vptr;
+    while(nleft > 0) {
+        if ((nread = read(fd, ptr, nleft)) < 0) {
+            if (errno == EINTR) nread = 0;
+            else return -1;
+        } else if (nread == 0) 
+            break;
+        ptr += nread;
+        nleft -= nread;
+    }
+    return n - nleft;
+}
+
+int writen(int fd, const void *vptr, int n) {
+    int nleft = n;
+    int nwrite;
+    const char * ptr = (const char *) vptr;
+
+    while(nleft > 0) {
+        if ((nwrite = write(fd, ptr, nleft)) <= 0) {
+            if (nwrite < 0 && errno == EINTR) nwrite = 0;
+            else  return -1;
+        }
+        nleft -= nwrite;
+        ptr += nwrite;
+    }
+    return n;
+}
